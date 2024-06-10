@@ -1,6 +1,45 @@
 #include "imports/stdlib.fc";
 
-() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+;; inspired by https://github.com/ton-blockchain/dns-contract/blob/main/func/dns-utils.fc
+cell reverse_text(slice text_slice) {
+    int need_break = 0;
+    builder result = begin_cell();
 
+    do {
+        int bits = text_slice.slice_bits();
+        int refs_len = text_slice.slice_refs();
+        int bytes_read = 8;
+        repeat(bits / bytes_read) {
+            result = result.store_slice(text_slice.slice_last(bytes_read));
+            text_slice = text_slice.skip_last_bits(bytes_read);
+        }
+
+        if (refs_len == 1) {
+            text_slice = text_slice~load_ref().begin_parse();
+            result = begin_cell().store_ref(result.end_cell());
+        }
+    } until (refs_len == 0);
+    return result.end_cell();
+} 
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_cell, slice in_msg_body) impure {
+    var cs = in_msg_cell.begin_parse();
+    var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+
+    slice s_addr = cs~load_msg_addr();
+
+    int op = in_msg_body~load_uint(32);
+
+    throw_if(101, op != 0);
+    cell result = reverse_text(in_msg_body); 
+    
+    cell msg = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(s_addr)
+        .store_coins(100)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .store_uint(0, 32)
+        .store_ref(result)
+        .end_cell();
+    send_raw_message(msg, 3);
 }
-
